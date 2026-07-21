@@ -1,0 +1,160 @@
+# The wiring. What runs, in what order, with which model, and where it goes.
+# Enabling or reordering a feature should never require editing Python.
+# ${VAR} is expanded from the environment (see .env.example).
+
+profile:
+  resume_path: profile/resume.md
+  portfolio_path: profile/portfolio.md
+
+llm:
+  backend: ollama                 # ollama | vllm | stub
+  model: qwen2.5:7b-instruct
+  base_url: http://localhost:11434
+  options:
+    temperature: 0.0
+
+embeddings:
+  backend: ollama                 # ollama | openai_compatible | hashing
+  model: bge-m3
+  base_url: http://localhost:11434
+
+storage:
+  path: data/jobs.db
+
+http:
+  cache_dir: data/cache
+  cache_ttl_seconds: 21600        # 6h — a re-run today won't re-hit every board
+  rate_limit_seconds: 1.0         # per host
+  timeout_seconds: 30
+
+# --- what to fetch -----------------------------------------------------------
+# `name` is the label that lands in JobPosting.source. Verify board tokens
+# before trusting a source: they're the slug in the public board URL.
+sources:
+  - type: greenhouse
+    name: anthropic
+    board: anthropic
+    company: Anthropic
+
+  - type: greenhouse
+    name: databricks
+    board: databricks
+    company: Databricks
+
+  - type: ashby
+    name: openai
+    board: openai
+    company: OpenAI
+
+  # - type: lever
+  #   name: some-startup
+  #   account: some-startup
+  #   company: Some Startup
+
+  # Browser sources are the last resort — only where no API exists, and only
+  # where the site's terms allow it.
+  # - type: browser
+  #   name: acme-careers
+  #   company: Acme Robotics
+  #   url: https://acme.example/careers
+  #   link_selector: "a[href*='/careers/']"
+  #   max_jobs: 20
+
+# --- what runs, in what order ------------------------------------------------
+pipeline:
+  - fetch
+  - extract            # no-op unless a browser source produced raw text
+  - keyword_filter     # free
+  - sponsorship        # free, and disqualifying — runs before anything paid
+  - embedding_ranker   # cheap
+  - llm_scorer         # expensive: only the top N reach it
+  - salary             # free annotation on the finalists
+  - dedup
+  - deliver
+
+stages:
+  fetch:
+    limit_per_source: 0           # 0 = no limit
+
+  keyword_filter:
+    include_title:
+      - machine learning
+      - ml engineer
+      - research engineer
+      - research scientist
+      - computer vision
+      - reinforcement learning
+      - deep learning
+      - perception
+      - robotics
+      - AI
+      - multimodal
+      - foundation model
+    exclude_title:
+      - sales
+      - recruiter
+      - marketing
+      - account executive
+      - principal            # too senior for a new grad
+      - director
+      - vp
+      - staff
+      - manager
+      - intern
+    locations:
+      - united states
+      - usa
+      - us
+      - remote
+      - san francisco
+      - bay area
+      - new york
+      - seattle
+      - boston
+      - austin
+      - los angeles
+    allow_remote: true
+
+  sponsorship:
+    drop_no_sponsorship: true
+    drop_citizenship_required: true
+
+  embedding_ranker:
+    top_k: 40
+    min_similarity: 0.0
+
+  llm_scorer:
+    top_n: 15                     # the cost knob — nothing else reaches the LLM
+    min_score: 0.55
+
+  salary:
+    min_annual: 0
+    drop_below_min: false
+
+  dedup:
+    only_new: true
+    include_changed: true
+
+  deliver:
+    min_score: 0.0
+    max_jobs: 25
+
+# --- where results go --------------------------------------------------------
+delivery:
+  console: {}
+
+  file:
+    path: data/digests/{date}.json
+    format: json
+
+  email:
+    enabled: false
+    to: ${DIGEST_EMAIL}
+    username: ${SMTP_USERNAME}
+    password: ${SMTP_PASSWORD}
+    host: ${SMTP_HOST:-smtp.gmail.com}
+    port: 587
+
+  slack:
+    enabled: false
+    webhook_url: ${SLACK_WEBHOOK_URL}

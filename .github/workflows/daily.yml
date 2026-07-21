@@ -1,0 +1,37 @@
+# Daily digest. Disabled by default: a GitHub-hosted runner cannot reach a
+# self-hosted Ollama. To use it, either point llm.base_url / embeddings.base_url
+# at a reachable server, or move this to a self-hosted runner — then uncomment
+# the schedule.
+name: daily-digest
+
+on:
+  workflow_dispatch:
+  # schedule:
+  #   - cron: "0 13 * * 1-5"   # 13:00 UTC ≈ 06:00 PT, weekdays
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -e .
+
+      # Dedup state must survive between runs, or every posting looks new.
+      - uses: actions/cache@v4
+        with:
+          path: data
+          key: jobagent-state-${{ github.run_id }}
+          restore-keys: jobagent-state-
+
+      - run: python -m jobagent.run
+        env:
+          DIGEST_EMAIL: ${{ secrets.DIGEST_EMAIL }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
