@@ -16,7 +16,8 @@ dependencies = [
 
 [project.optional-dependencies]
 browser = ["playwright>=1.44"]
-dev = ["pytest>=8.0"]
+pdf = ["pypdf>=4.0"]
+dev = ["pytest>=8.0", "pypdf>=4.0"]
 
 [project.scripts]
 jobagent = "jobagent.run:main"

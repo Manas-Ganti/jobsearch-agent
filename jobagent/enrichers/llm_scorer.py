@@ -19,7 +19,7 @@ log = logging.getLogger(__name__)
 
 SYSTEM = (
     "You are a hiring-match assessor for one specific candidate. You are strict: "
-    "a high score means the candidate would plausibly get an interview."
+    "a high rating means the candidate would plausibly get an interview."
 )
 
 PROMPT = """CANDIDATE PROFILE
@@ -32,19 +32,32 @@ Location: {location}
 
 {description}
 
-Score how good a match this job is for this candidate, 0.0 to 1.0:
-  0.8-1.0 strong match — core skills and level line up
-  0.5-0.8 plausible — adjacent domain or slight level mismatch
-  0.0-0.5 weak — different field, wrong level, or disqualifying requirement
-Weigh domain overlap, required experience level, and any hard requirements the
-candidate cannot meet. Give a one-sentence rationale naming the deciding factor.
+Rate this posting for THIS candidate. Judge each axis separately.
+
+domain_fit (0-10): how close the technical domain is to what the candidate has
+  actually done. 10 = same subfield and tools; 5 = adjacent (general ML vs. RL);
+  0 = unrelated field.
+level_fit (0-10): 10 = the candidate's experience level is what the posting asks
+  for; 5 = one level off; 0 = far off in either direction (new grad vs. 10+ years
+  required, or a senior IC role vs. an internship).
+blockers: every hard requirement in the posting this candidate cannot meet —
+  years of experience, required degree, citizenship or clearance, on-site in a
+  country they are not in, a licence they lack. Empty list if there are none.
+rationale: ONE sentence naming the single deciding factor.
+
+Be discriminating. Most postings are not a 10, and near-identical roles should
+still separate on the details.
 """
 
 
 class Assessment(BaseModel):
-    score: float = Field(ge=0.0, le=1.0)
+    """Three narrow judgements a 7B model can make well, instead of one holistic
+    float it cannot. The final 0-1 score is computed from these in Python."""
+
+    domain_fit: float = Field(ge=0.0, le=10.0)
+    level_fit: float = Field(ge=0.0, le=10.0)
+    blockers: list[str] = Field(default_factory=list)
     rationale: str
-    concerns: list[str] = Field(default_factory=list)
 
 
 @register_enricher("llm_scorer")
@@ -54,12 +67,16 @@ class LLMScorer(Enricher):
         top_n: int = 15,
         min_score: float = 0.0,
         keep_unscored_tail: bool = False,
+        domain_weight: float = 0.65,
+        blocker_penalty: float = 0.25,
         max_profile_chars: int = 6000,
         max_description_chars: int = 6000,
     ) -> None:
         self.top_n = top_n
         self.min_score = min_score
         self.keep_unscored_tail = keep_unscored_tail
+        self.domain_weight = domain_weight
+        self.blocker_penalty = blocker_penalty
         self.max_profile_chars = max_profile_chars
         self.max_description_chars = max_description_chars
 
@@ -96,8 +113,25 @@ class LLMScorer(Enricher):
         if result is None:
             log.warning("scoring failed for %s — leaving unscored", job.url)
             return job
-        job.score = round(max(0.0, min(1.0, result.score)), 3)
+
+        job.score = self._combine(result)
         job.rationale = result.rationale.strip()
-        if result.concerns:
-            job.metadata["concerns"] = result.concerns
+        job.metadata["fit"] = {
+            "domain": result.domain_fit,
+            "level": result.level_fit,
+        }
+        if result.blockers:
+            job.metadata["blockers"] = result.blockers
+            job.tag("has-blockers")
         return job
+
+    def _combine(self, result: Assessment) -> float:
+        """Weighted sub-scores, discounted once per hard blocker. Doing this in
+        Python rather than asking for one number is what gives the small model
+        room to separate otherwise-identical roles."""
+        base = (
+            self.domain_weight * result.domain_fit
+            + (1.0 - self.domain_weight) * result.level_fit
+        ) / 10.0
+        base *= max(0.0, 1.0 - self.blocker_penalty * len(result.blockers))
+        return round(max(0.0, min(1.0, base)), 3)

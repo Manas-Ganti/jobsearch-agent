@@ -3,8 +3,9 @@
 # ${VAR} is expanded from the environment (see .env.example).
 
 profile:
-  resume_path: profile/resume.md
-  portfolio_path: profile/portfolio.md
+  # PDF or text. Keep the real file gitignored — see profile/*.example.md.
+  resume_path: profile/manas-resume.pdf
+  portfolio_path: null
 
 llm:
   backend: ollama                 # ollama | vllm | stub

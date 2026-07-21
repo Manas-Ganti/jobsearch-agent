@@ -85,13 +85,45 @@ def test_ranker_orders_by_similarity_and_truncates(ctx):
 
 
 def test_scorer_only_touches_top_n(ctx, llm):
-    llm.responses = [{"score": 0.9, "rationale": "RL match", "concerns": []}]
+    llm.responses = [
+        {"domain_fit": 9, "level_fit": 9, "blockers": [], "rationale": "RL match"}
+    ]
     stage = LLMScorer(ctx, top_n=1)
     jobs = [make_job(url=f"https://x.example/{i}") for i in range(4)]
     out = stage.run(jobs)
     assert len(llm.prompts) == 1          # the cost model, asserted
     assert len(out) == 1
     assert out[0].score == 0.9 and out[0].rationale == "RL match"
+    assert out[0].metadata["fit"] == {"domain": 9, "level": 9}
+
+
+def test_score_combines_subscores_by_weight(ctx, llm):
+    llm.responses = [
+        {"domain_fit": 10, "level_fit": 0, "blockers": [], "rationale": "domain only"}
+    ]
+    out = LLMScorer(ctx, top_n=1, domain_weight=0.65).run([make_job()])
+    assert out[0].score == 0.65           # 0.65*10 + 0.35*0, over 10
+
+
+def test_blockers_discount_the_score_and_tag_the_job(ctx, llm):
+    llm.responses = [{
+        "domain_fit": 10, "level_fit": 10,
+        "blockers": ["requires US citizenship", "10+ years required"],
+        "rationale": "blocked",
+    }]
+    out = LLMScorer(ctx, top_n=1).run([make_job()])
+    assert out[0].score == 0.5            # 1.0 * (1 - 0.25*2)
+    assert out[0].has("has-blockers")
+    assert len(out[0].metadata["blockers"]) == 2
+
+
+def test_blockers_cannot_push_the_score_below_zero(ctx, llm):
+    llm.responses = [{
+        "domain_fit": 10, "level_fit": 10,
+        "blockers": ["a", "b", "c", "d", "e"], "rationale": "hopeless",
+    }]
+    out = LLMScorer(ctx, top_n=1).run([make_job()])
+    assert out[0].score == 0.0
 
 
 def test_scorer_keeps_jobs_it_failed_to_assess(ctx, llm):
@@ -102,7 +134,9 @@ def test_scorer_keeps_jobs_it_failed_to_assess(ctx, llm):
 
 
 def test_scorer_applies_min_score(ctx, llm):
-    llm.responses = [{"score": 0.2, "rationale": "wrong field", "concerns": []}]
+    llm.responses = [
+        {"domain_fit": 2, "level_fit": 2, "blockers": [], "rationale": "wrong field"}
+    ]
     assert LLMScorer(ctx, top_n=1, min_score=0.5).run([make_job()]) == []
 
 

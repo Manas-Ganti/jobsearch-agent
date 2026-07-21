@@ -1,6 +1,11 @@
 .env
 data/
 .claude/settings.local.json
+
+# Personal profile. A real resume carries your address, phone, and email —
+# it must never land in a public repo. Only the *.example.md files are tracked.
+profile/*
+!profile/*.example.md
 __pycache__/
 *.py[cod]
 .pytest_cache/

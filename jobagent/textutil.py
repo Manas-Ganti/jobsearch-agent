@@ -21,8 +21,12 @@ def html_to_text(raw: str) -> str:
     text = _BLOCK.sub("\n", text)
     text = _TAG.sub(" ", text)
     text = html.unescape(text)
+    return normalize_text(text)
+
+
+def normalize_text(text: str) -> str:
+    """Collapse the ragged whitespace left by tag stripping or PDF extraction."""
     text = _SPACES.sub(" ", text)
-    # Stripped tags leave ragged indentation on every line they opened.
     text = "\n".join(line.strip() for line in text.splitlines())
     return _BLANKS.sub("\n\n", text).strip()
 
