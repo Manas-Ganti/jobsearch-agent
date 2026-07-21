@@ -154,3 +154,38 @@ def test_salary_absent_is_not_an_error(ctx):
     job = make_job(description="Competitive compensation.")
     assert SalaryEnricher(ctx).run([job]) == [job]
     assert "salary" not in job.metadata
+
+
+def test_salary_ignores_amounts_that_are_not_pay(ctx):
+    """A compute budget is not a salary — the bug this guards was live."""
+    job = make_job(description="Funding for compute (~$15k/month) and research expenses.")
+    SalaryEnricher(ctx).run([job])
+    assert "salary" not in job.metadata
+
+
+def test_salary_ignores_amounts_with_no_compensation_cue(ctx):
+    job = make_job(description="We raised $200,000,000 in Series C funding.")
+    SalaryEnricher(ctx).run([job])
+    assert "salary" not in job.metadata
+
+
+def test_salary_prefers_the_cued_range_over_an_earlier_figure(ctx):
+    job = make_job(description=(
+        "Equipment budget of $5,000. Annual salary range: $200,000 - $260,000 USD."
+    ))
+    SalaryEnricher(ctx).run([job])
+    assert job.metadata["salary"] == {"min": 200000, "max": 260000, "period": "annual"}
+
+
+def test_salary_detects_non_annual_periods(ctx):
+    monthly = make_job(description="Compensation: $12,000 per month.")
+    SalaryEnricher(ctx).run([monthly])
+    assert monthly.metadata["salary"]["period"] == "monthly"
+
+
+def test_salary_ignores_small_hourly_figures(ctx):
+    """Known limit: _AMOUNT only matches 5+ digit figures, so "$85/hr" is
+    skipped. Deliberate — small numbers in prose are almost never pay."""
+    job = make_job(description="Hourly rate for this contract is $85 per hour.")
+    SalaryEnricher(ctx).run([job])
+    assert "salary" not in job.metadata

@@ -20,7 +20,9 @@ FLAGS = {
 def _flags(job: JobPosting) -> list[str]:
     out = [FLAGS[t] for t in job.tags if t in FLAGS]
     if salary := job.metadata.get("salary"):
-        unit = "/hr" if salary.get("period") == "hourly" else ""
+        unit = {"hourly": "/hr", "monthly": "/mo", "weekly": "/wk"}.get(
+            salary.get("period", "annual"), ""
+        )
         out.append(f"${salary['min']:,}–${salary.get('max') or salary['min']:,}{unit}")
     return out
 
@@ -42,6 +44,39 @@ def as_text(jobs: list[JobPosting]) -> str:
         lines.append(f"   {job.url}")
         lines.append("")
     return "\n".join(lines)
+
+
+def _cell(text: str) -> str:
+    """Markdown tables are line-based and pipe-delimited — neither may survive."""
+    return text.replace("|", "\\|").replace("\n", " ").strip()
+
+
+def as_table(jobs: list[JobPosting], include_rationale: bool = True) -> str:
+    """GitHub-flavoured markdown table, for a README or an issue comment."""
+    headers = ["Score", "Role", "Company", "Location", "Notes"]
+    if include_rationale:
+        headers.append("Why")
+
+    rows = []
+    for job in jobs:
+        row = [
+            f"**{job.score:.2f}**" if job.score is not None else "—",
+            f"[{_cell(job.title)}]({job.url})",
+            _cell(job.company),
+            _cell(job.location) or "—",
+            _cell(" · ".join(_flags(job))) or "—",
+        ]
+        if include_rationale:
+            row.append(_cell(truncate(job.rationale or "", 140)) or "—")
+        rows.append("| " + " | ".join(row) + " |")
+
+    return "\n".join(
+        [
+            "| " + " | ".join(headers) + " |",
+            "|" + "|".join(["---"] * len(headers)) + "|",
+            *rows,
+        ]
+    )
 
 
 def as_markdown(jobs: list[JobPosting]) -> str:

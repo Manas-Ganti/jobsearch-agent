@@ -147,6 +147,14 @@ delivery:
     path: data/digests/{date}.json
     format: json
 
+  # Renders a table between the jobagent markers in README.md, so the repo page
+  # shows the latest digest. Public repo — see `include_rationale`.
+  markdown:
+    path: README.md
+    heading: "## Latest matches"
+    max_rows: 20
+    include_rationale: true
+
   email:
     enabled: false
     to: ${DIGEST_EMAIL}

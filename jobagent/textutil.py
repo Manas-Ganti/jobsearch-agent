@@ -15,13 +15,31 @@ _SPACES = re.compile(r"[ \t]{2,}")
 
 def html_to_text(raw: str) -> str:
     """Good-enough HTML → text. Job descriptions are simple markup."""
-    text = _SCRIPT.sub(" ", raw or "")
+    text = _unescape_markup(raw or "")
+    text = _SCRIPT.sub(" ", text)
     text = _BR.sub("\n", text)
     text = _BLOCK.sub("\n", text)
     text = _TAG.sub(" ", text)
     text = html.unescape(text)
     text = _SPACES.sub(" ", text)
+    # Stripped tags leave ragged indentation on every line they opened.
+    text = "\n".join(line.strip() for line in text.splitlines())
     return _BLANKS.sub("\n\n", text).strip()
+
+
+def _unescape_markup(text: str) -> str:
+    """Some boards (Greenhouse) return HTML that is itself entity-escaped, so
+    `&lt;p&gt;` arrives instead of `<p>`. Unescape until real markup appears,
+    otherwise the tag stripping below has nothing to strip and the tags survive
+    into the description — poisoning embeddings, prompts, and the regex stages."""
+    for _ in range(2):
+        if "<" in text and ">" in text:
+            break
+        unescaped = html.unescape(text)
+        if unescaped == text:
+            break
+        text = unescaped
+    return text
 
 
 def truncate(text: str, max_chars: int) -> str:

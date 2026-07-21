@@ -42,6 +42,8 @@ def test_greenhouse_maps_to_raw_postings(ctx):
     assert postings[0].title == "ML Engineer"
     assert postings[0].company == "Acme"
     assert not postings[0].needs_extraction
+    # Greenhouse escapes its HTML; the description must still come out clean.
+    assert postings[0].description == "Train models"
 
 
 def test_lever_maps_to_raw_postings(ctx):
